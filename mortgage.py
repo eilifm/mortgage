@@ -4,6 +4,9 @@ from __future__ import print_function
 import sys
 import argparse
 import decimal
+import datetime as dt
+import pandas as pd
+import numpy as np
 
 MONTHS_IN_YEAR = 12
 DOLLAR_QUANTIZE = decimal.Decimal('.01')
@@ -16,11 +19,25 @@ def dollar(f, round=decimal.ROUND_CEILING):
         f = decimal.Decimal(str(f))
     return f.quantize(DOLLAR_QUANTIZE, rounding=round)
 
+class House:
+    def __init__(self, purch_price, down_pct, purch_date):
+        self._purch_price = purch_price
+        self._down_pct = down_pct
+        self._purch_date = purch_date
+
+    def purch_price(self):
+        return self._purch_price
+
+    def build_mortgage(self, interest, months):
+        return Mortgage(interest, months, (1-self._down_pct)*self._purch_price, self._purch_date)
+
+
 class Mortgage:
-    def __init__(self, interest, months, amount):
+    def __init__(self, interest: float, months: int, amount, start_date: dt.datetime):
         self._interest = float(interest)
         self._months = int(months)
         self._amount = dollar(amount)
+        self._start_date = start_date
 
     def rate(self):
         return self._interest
@@ -66,6 +83,18 @@ class Mortgage:
             principle = monthly - interest
             yield principle, interest
             balance -= principle
+
+    def payment_schedule_df(self) -> pd.DataFrame():
+        dt_ix = pd.date_range(self._start_date, periods=self._months, freq='M')
+
+        schedule = [(index, payment[0], payment[1]) for index, payment in enumerate(self.monthly_payment_schedule())]
+        schedule_df = pd.DataFrame(schedule, index=dt_ix, columns=['Period', 'Principal', 'Interest'])
+        schedule_df.loc[:, 'PrincipalBalance'] = self._amount
+        schedule_df.loc[:, 'tmp'] = schedule_df.loc[:, 'Principal'].cumsum()
+        schedule_df.loc[:, 'PrincipalBalance'] = schedule_df.loc[:, 'PrincipalBalance'] - schedule_df.loc[:, 'tmp']
+        del schedule_df['tmp']
+
+        return schedule_df
 
 def print_summary(m):
     print('{0:>25s}:  {1:>12.6f}'.format('Rate', m.rate()))
